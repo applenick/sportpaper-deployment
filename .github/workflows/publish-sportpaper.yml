@@ -44,6 +44,12 @@ jobs:
           java-version: "8"
           cache: maven
 
+      - name: Configure Git identity for patch builds
+        if: steps.upstream.outputs.should_publish == 'true'
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
       - name: Build SportPaper
         if: steps.upstream.outputs.should_publish == 'true'
         working-directory: .work/upstream
