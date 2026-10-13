@@ -1,0 +1,80 @@
+name: Publish SportPaper snapshots
+
+on:
+  schedule:
+    - cron: "35 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: sportpaper-main-publisher
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out publisher
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Check out SportPaper main
+        uses: actions/checkout@v7
+        with:
+          repository: Electroid/SportPaper
+          ref: main
+          fetch-depth: 0
+          submodules: recursive
+          path: .work/upstream
+
+      - name: Compare publication state
+        id: upstream
+        run: ./scripts/resolve-upstream.sh
+
+      - name: Set up Java 8
+        if: steps.upstream.outputs.should_publish == 'true'
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "8"
+          cache: maven
+
+      - name: Build SportPaper
+        if: steps.upstream.outputs.should_publish == 'true'
+        working-directory: .work/upstream
+        run: ./sportpaper build
+
+      - name: Publish SportPaper artifacts to Reposilite
+        if: steps.upstream.outputs.should_publish == 'true'
+        working-directory: .work/upstream
+        env:
+          REPOSILITE_URL: ${{ secrets.REPOSILITE_URL }}
+          REPOSILITE_USERNAME: ${{ secrets.REPOSILITE_USERNAME }}
+          REPOSILITE_TOKEN: ${{ secrets.REPOSILITE_TOKEN }}
+        run: |
+          mvn --batch-mode \
+            --settings ../../maven/settings.xml \
+            --define skipTests \
+            --define altDeploymentRepository="reposilite::default::${REPOSILITE_URL}" \
+            deploy
+
+      - name: Record successful publication
+        if: steps.upstream.outputs.should_publish == 'true'
+        run: ./scripts/record-success.sh "${{ steps.upstream.outputs.upstream_sha }}"
+
+      - name: Preserve build outputs after failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: sportpaper-publish-failure-${{ github.run_id }}
+          path: |
+            .work/upstream/SportPaper-API/target/
+            .work/upstream/SportPaper-Server/target/
+          if-no-files-found: ignore
+          retention-days: 7
+
