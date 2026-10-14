@@ -11,5 +11,4 @@ artifact metadata are not modified.
 
 - `app.ashcon:sportpaper-api:1.8.8-R0.1-SNAPSHOT`
 - `app.ashcon:sportpaper:1.8.8-R0.1-SNAPSHOT`
-versions.
 
