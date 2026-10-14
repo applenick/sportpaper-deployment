@@ -24,7 +24,7 @@ fi
 if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
   {
     echo "upstream_sha=${upstream_sha}"
-    if [[ "${upstream_sha}" == "${published_sha}" ]]; then
+    if [[ "${FORCE_PUBLISH:-false}" != "true" && "${upstream_sha}" == "${published_sha}" ]]; then
       echo "should_publish=false"
     else
       echo "should_publish=true"
@@ -32,7 +32,9 @@ if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
   } >> "${GITHUB_OUTPUT}"
 fi
 
-if [[ "${upstream_sha}" == "${published_sha}" ]]; then
+if [[ "${FORCE_PUBLISH:-false}" == "true" ]]; then
+  echo "Forcing rebuild and publication of SportPaper ${upstream_sha}."
+elif [[ "${upstream_sha}" == "${published_sha}" ]]; then
   echo "SportPaper ${upstream_sha} is already published."
 else
   echo "SportPaper ${upstream_sha} needs publication (last successful: ${published_sha:-none})."

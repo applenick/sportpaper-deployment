@@ -4,6 +4,12 @@ on:
   schedule:
     - cron: "35 * * * *"
   workflow_dispatch:
+    inputs:
+      force:
+        description: Force rebuild and publish even if the commit is already published
+        type: boolean
+        default: false
+        required: false
 
 concurrency:
   group: sportpaper-main-publisher
@@ -16,6 +22,14 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    env:
+      FORCE_PUBLISH: ${{ github.event_name == 'workflow_dispatch' && inputs.force || false }}
+      NOTIFY_PROJECT: SportPaper
+      UPSTREAM_REPOSITORY: Electroid/SportPaper
+      UPSTREAM_BRANCH: main
+      NOTIFY_ARTIFACTS: |
+        app.ashcon:sportpaper-api:1.8.8-R0.1-SNAPSHOT
+        app.ashcon:sportpaper:1.8.8-R0.1-SNAPSHOT
 
     steps:
       - name: Check out publisher
@@ -34,7 +48,20 @@ jobs:
 
       - name: Compare publication state
         id: upstream
+        env:
+          FORCE_PUBLISH: ${{ github.event_name == 'workflow_dispatch' && inputs.force || false }}
         run: ./scripts/resolve-upstream.sh
+
+      - name: Notify Discord of build start
+        if: steps.upstream.outputs.should_publish == 'true'
+        continue-on-error: true
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          UPSTREAM_SHA: ${{ steps.upstream.outputs.upstream_sha }}
+          NOTIFY_STATUS: started
+        run: |
+          echo "BUILD_STARTED_AT=$(date +%s)" >> "$GITHUB_ENV"
+          python3 scripts/notify-discord.py
 
       - name: Set up Java 8
         if: steps.upstream.outputs.should_publish == 'true'
@@ -51,11 +78,13 @@ jobs:
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
       - name: Build SportPaper
+        id: build
         if: steps.upstream.outputs.should_publish == 'true'
         working-directory: .work/upstream
         run: ./sportpaper build
 
       - name: Publish SportPaper artifacts to Reposilite
+        id: publish
         if: steps.upstream.outputs.should_publish == 'true'
         working-directory: .work/upstream
         env:
@@ -70,8 +99,21 @@ jobs:
             deploy
 
       - name: Record successful publication
+        id: state
         if: steps.upstream.outputs.should_publish == 'true'
         run: ./scripts/record-success.sh "${{ steps.upstream.outputs.upstream_sha }}"
+
+      - name: Notify Discord of result
+        if: ${{ always() && !cancelled() && steps.upstream.outputs.should_publish == 'true' }}
+        continue-on-error: true
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          UPSTREAM_SHA: ${{ steps.upstream.outputs.upstream_sha }}
+          NOTIFY_STATUS: ${{ steps.state.outcome == 'success' && 'success' || 'failure' }}
+          BUILD_OUTCOME: ${{ steps.build.outcome }}
+          PUBLISH_OUTCOME: ${{ steps.publish.outcome }}
+          STATE_OUTCOME: ${{ steps.state.outcome }}
+        run: python3 scripts/notify-discord.py
 
       - name: Preserve build outputs after failure
         if: failure()
